@@ -1,0 +1,11 @@
+:hardbreaks-option:
+= Scala + Spark example project
+
+demonstration of :  
+
+* setup sbt multi-module project 
+* how to write modular code
+* how to write testable code
+* how to write unit tests
+* how to write integration tests
+  
