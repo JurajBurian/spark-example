@@ -23,7 +23,7 @@ class CalculationSpec extends FunSuite with Logging {
     .withEnv("KAFKA_NUM_PARTITIONS", "1")
     .withEnv("AUTO_CREATE_TOPICS_ENABLE", "true")
 
-  private lazy val kafkaProducer = {
+  private def getKafkaProducer = {
     val properties = new java.util.Properties()
     properties.put("bootstrap.servers", kafkaContainer.getBootstrapServers)
     properties.put("key.serializer", classOf[StringSerializer])
@@ -32,7 +32,7 @@ class CalculationSpec extends FunSuite with Logging {
     new KafkaProducer[String, String](properties)
   }
 
-  private lazy val kafkaConsumer = {
+  private def getKafkaConsumer = {
     // Configuration
     val props = new java.util.Properties()
     import ConsumerConfig._
@@ -47,7 +47,7 @@ class CalculationSpec extends FunSuite with Logging {
   }
 
   // Create a SparkSession
-  private lazy val spark = org.apache.spark.sql.SparkSession
+  private def getSpark = org.apache.spark.sql.SparkSession
     .builder()
     .appName("CalculationSpec")
     .master("local[3]")
@@ -70,19 +70,29 @@ class CalculationSpec extends FunSuite with Logging {
 
     val msg        = "Ahoj, ako sa mas"
     val iterations = 100
-    Future {
-      1 to iterations foreach { i =>
-        kafkaProducer.send(new ProducerRecord[String, String](topic, i.toString, msg)).get()
-        Thread.sleep(100)
-      }
-      kafkaProducer.close()
-    }
 
-    // Build the streaming query
+    // create producer and consumer and spark session
+    val kafkaProducer = getKafkaProducer
+    val kafkaConsumer = getKafkaConsumer
+    val spark         = getSpark
+
+    // buil streaming query
     val query = build(spark, kafkaContainer.getBootstrapServers, topic).start()
 
-    val res =
-      try {
+    try {
+
+      // async send an events to kafka topic
+      Future {
+        1 to iterations foreach { i =>
+          kafkaProducer.send(new ProducerRecord[String, String](topic, i.toString, msg)).get()
+          Thread.sleep(50)
+        }
+        kafkaProducer.close()
+      }
+
+      val res = {
+
+        // consume events from kafka to validate
         @scala.annotation.tailrec
         def rec(time: Long, acc: Map[String, Int] = Map.empty): Boolean = {
           log.debug(s"acc: $acc")
@@ -96,13 +106,18 @@ class CalculationSpec extends FunSuite with Logging {
             true
           }
         }
+
         rec(System.currentTimeMillis())
-      } finally {
-        kafkaConsumer.close()
-        query.stop()
-        query.awaitTermination()
-        spark.close()
       }
-    assert(res, "The streaming query completed) successfully.")
+
+      assert(res, "The streaming query completed) successfully.")
+
+    } finally {
+      // close all resources
+      Try(kafkaConsumer.close())
+      Try(query.stop())
+      Try(query.awaitTermination())
+      Try(spark.close())
+    }
   }
 }
