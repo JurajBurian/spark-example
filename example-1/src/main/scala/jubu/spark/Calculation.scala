@@ -7,13 +7,14 @@ object Calculation {
 
   def source(spark: SparkSession, brokers: String, topics: String): Dataset[String] = {
     import spark.implicits._
-    val df = spark.readStream
+    val df: DataFrame = spark.readStream
       .format("kafka")
       .option("kafka.bootstrap.servers", brokers)
       .option("subscribe", topics)
       .option("startingOffsets", "earliest")
       .load()
-    df.selectExpr("CAST(value AS STRING)").as[String]
+
+    df.as[String]
   }
 
   def aggregation(spark: SparkSession, dataset: Dataset[String]): DataFrame = {
